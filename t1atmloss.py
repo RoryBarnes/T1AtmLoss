@@ -12,9 +12,14 @@ rory@astro.washington.edu
 
 import os
 from approxposterior import approx, utility, gpUtils
+from scipy.stats import norm
 import emcee
 import numpy as np
 import george
+import random
+import re
+import subprocess
+import vplot as vpl
 
 """
 
@@ -51,6 +56,16 @@ Free parameters:
 
 """
 
+# Constants
+LSUN = 3.846e26 # Solar luminosity in ergs/s
+YEARSEC = 3.15576e7 # seconds per year
+BIGG = 6.67428e-11 # Universal Gravitational Constant in cgs
+DAYSEC = 86400.0 # seconds per day
+MSUN = 1.988416e30 # mass of sun in g
+AUCM = 1.49598e11 # cm per AU
+MTO = 1.4e24 # Mass of all of Earth's water in g
+MEarth = 5.972e27 # Mass of Earth in g
+
 def SamplePrior(size=1, **kwargs):
     """
     Sample dMass, dSatXUVFrac, dSatXUVTime, dStopTime, and dXUVBeta from their
@@ -60,12 +75,12 @@ def SamplePrior(size=1, **kwargs):
     ret = []
     for ii in range(size):
         while True:
-            guess = [np.random.uniform(low=0.07, high=0.11),
-                     norm.rvs(loc=fsatTrappist1, scale=fsatTrappist1Sig, size=1)[0],
-                     np.random.uniform(low=0.1, high=12),
-                     norm.rvs(loc=ageTrappist1, scale=ageTrappist1Sig, size=1)[0],
-                     norm.rvs(loc=betaTrappist1, scale=betaTrappist1Sig, size=1)[0]]
-            if not np.isinf(LnPriorTRAPPIST1(guess, **kwargs)):
+            guess = [np.random.uniform(low=dPriorStarMassMin, high=dPriorStarMassMax),
+                     norm.rvs(loc=dFSat, scale=dFSatSig, size=1)[0],
+                     np.random.uniform(low=dPriorSatTimeMin, high=dPriorSatTimeMax),
+                     norm.rvs(loc=dAge, scale=dAgeSig, size=1)[0],
+                     norm.rvs(loc=dBeta, scale=dBetaSig, size=1)[0]]
+            if not np.isinf(LnPrior(guess, **kwargs)):
                 ret.append(guess)
                 break
 
@@ -75,13 +90,13 @@ def SamplePrior(size=1, **kwargs):
         return ret[0]
 # end function
 
-def LnPrior(x, **kwargs):
+def LnPrior(daStateVector, **kwargs):
     """
     log prior
     """
 
     # Get the current vector
-    dMass, dSatXUVFrac, dSatXUVTime, dStopTime, dXUVBeta = x
+    dMass, dSatXUVFrac, dSatXUVTime, dStopTime, dXUVBeta = daStateVector
 
     # Uniform prior for stellar mass [Msun]
     if (dMass < dPriorStarMassMin) or (dMass > dPriorStarMassMax):
@@ -117,30 +132,31 @@ def LnPrior(x, **kwargs):
 
 ### Loglikelihood and MCMC functions ###
 
-def LnLike(x, **kwargs):
+def LnLike(daStateVector, **kwargs):
     """
     loglikelihood function: runs VPLanet simulation
     """
 
     # Get the current vector
-    dMass, dSatXUVFrac, dSatXUVTime, dStopTime, dXUVBeta = x
+    dMass, dSatXUVFrac, dSatXUVTime, dStopTime, dXUVBeta = daStateVector
     dSatXUVFrac = 10 ** dSatXUVFrac # Unlog
     dStopTime *= 1.e9 # Convert from Gyr -> yr
     dOutputTime = dStopTime # Output only at the end of the simulation
 
     # Get the prior probability to ignore unphysical state vectors
     # Do this to prevent errors stemming from VPLanet not finishing
-    lnprior = kwargs["LnPrior"](x, **kwargs)
-    if np.isinf(lnprior):
+    dLnPrior = kwargs["LnPrior"](daStateVector, **kwargs)
+    if np.isinf(dLnPrior):
         blobs = np.array([np.nan, np.nan, np.nan])
         return -np.inf, blobs
 
     # Get strings containing VPLanet input files (they must be provided!)
     try:
-        star_in = kwargs.get("STARIN")
-        vpl_in = kwargs.get("VPLIN")
+        sStarFileIn = kwargs.get("STARIN")
+        sPrimaryFileIn = kwargs.get("VPLIN")
+#        sPlanetEFileIn = kwargs.get("EIN")
     except KeyError as err:
-        print("ERROR: Must supply STARIN and VPLIN.")
+        print("ERROR: Must supply VPLIN, STARIN, and EIN in LnLike.")
         raise
 
     # Get PATH
@@ -150,102 +166,95 @@ def LnLike(x, **kwargs):
         print("ERROR: Must supply PATH.")
         raise
 
-    # Randomize file names
-    sysName = 'vpl%012x' % random.randrange(16**12)
-    starName = 'st%012x' % random.randrange(16**12)
-    sysFile = sysName + '.in'
-    starFile = starName + '.in'
-    logfile = sysName + '.log'
-    starFwFile = '%s.star.forward' % sysName
+    # Randomize file names to prevent overwrites
+    sVPLName = 'vpl%012x' % random.randrange(16**12)
+    sStarName = 'st%012x' % random.randrange(16**12)
+#    sEName = 'e%012x' % random.randrange(16**12)
+    sPrimaryFile = sVPLName + '.in'
+    sStarFile = sStarName + '.in'
+#    sEFile = sEName + '.in'
+    sLogFile = sVPLName + '.log'
+    sStarFwFile = '%s.star.forward' % sVPLName
+#    sEFwFile = '%s.e.forward' % sEName
+
+
+# mkdir output!
 
     # Populate the star input file
-    star_in = re.sub("%s(.*?)#" % "dMass", "%s %.6e #" % ("dMass", dMass), star_in)
-    star_in = re.sub("%s(.*?)#" % "dSatXUVFrac", "%s %.6e #" % ("dSatXUVFrac", dSatXUVFrac), star_in)
-    star_in = re.sub("%s(.*?)#" % "dSatXUVTime", "%s %.6e #" % ("dSatXUVTime", -dSatXUVTime), star_in)
-    star_in = re.sub("%s(.*?)#" % "dXUVBeta", "%s %.6e #" % ("dXUVBeta", -dXUVBeta), star_in)
-    with open(os.path.join(PATH, "output", starFile), 'w') as f:
-        print(star_in, file = f)
+    sStarFileIn = re.sub("%s(.*?)#" % "dMass", "%s %.6e #" % ("dMass", dMass), sStarFileIn)
+    sStarFileIn = re.sub("%s(.*?)#" % "dSatXUVFrac", "%s %.6e #" % ("dSatXUVFrac", dSatXUVFrac), sStarFileIn)
+    sStarFileIn = re.sub("%s(.*?)#" % "dSatXUVTime", "%s %.6e #" % ("dSatXUVTime", -dSatXUVTime), sStarFileIn)
+    sStarFileIn = re.sub("%s(.*?)#" % "dXUVBeta", "%s %.6e #" % ("dXUVBeta", -dXUVBeta), sStarFileIn)
+    with open(os.path.join(PATH, "output", sStarFile), 'w') as f:
+        print(sStarFileIn, file = f)
 
     # Populate the system input file
 
     # Populate list of planets
-    saBodyFiles = str(starFile) + " #"
+    saBodyFiles = str(sStarFile) + " #"
     saBodyFiles = saBodyFiles.strip()
 
-    vpl_in = re.sub('%s(.*?)#' % "dStopTime", '%s %.6e #' % ("dStopTime", dStopTime), vpl_in)
-    vpl_in = re.sub('%s(.*?)#' % "dOutputTime", '%s %.6e #' % ("dOutputTime", dOutputTime), vpl_in)
-    vpl_in = re.sub('sSystemName(.*?)#', 'sSystemName %s #' % sysName, vpl_in)
-    vpl_in = re.sub('saBodyFiles(.*?)#', 'saBodyFiles %s #' % saBodyFiles, vpl_in)
-    with open(os.path.join(PATH, "output", sysFile), 'w') as f:
-        print(vpl_in, file = f)
+    sPrimaryFileIn = re.sub('%s(.*?)#' % "dStopTime", '%s %.6e #' % ("dStopTime", dStopTime), sPrimaryFileIn)
+    sPrimaryFileIn = re.sub('%s(.*?)#' % "dOutputTime", '%s %.6e #' % ("dOutputTime", dOutputTime), sPrimaryFileIn)
+    sPrimaryFileIn = re.sub('sSystemName(.*?)#', 'sSystemName %s #' % sVPLName, sPrimaryFileIn)
+    sPrimaryFileIn = re.sub('saBodyFiles(.*?)#', 'saBodyFiles %s #' % saBodyFiles, sPrimaryFileIn)
+    with open(os.path.join(PATH, "output", sPrimaryFile), 'w') as f:
+        print(sPrimaryFileIn, file = f)
 
     # Run VPLANET and get the output, then delete the output files
-    subprocess.call(["vplanet", sysFile], cwd = os.path.join(PATH, "output"))
-    output = vpl.GetOutput(os.path.join(PATH, "output"), logfile = logfile)
+    subprocess.call(["vplanet", sPrimaryFile], cwd = os.path.join(PATH, "output"))
+    output = vpl.GetOutput(os.path.join(PATH, "output"), logfile = sLogFile)
 
     try:
-        os.remove(os.path.join(PATH, "output", starFile))
-        os.remove(os.path.join(PATH, "output", sysFile))
-        os.remove(os.path.join(PATH, "output", starFwFile))
-        os.remove(os.path.join(PATH, "output", logfile))
+        os.remove(os.path.join(PATH, "output", sStarFile))
+        os.remove(os.path.join(PATH, "output", sPrimaryFile))
+        os.remove(os.path.join(PATH, "output", sStarFwFile))
+        os.remove(os.path.join(PATH, "output", sLogFile))
     except FileNotFoundError:
         # Run failed!
-        blobs = np.array([np.nan, np.nan, np.nan])
+        daParams = np.array([np.nan, np.nan, np.nan])
         return -np.inf, blobs
 
     # Ensure we ran for as long as we set out to
-    if not output.log.final.system.Age / utils.YEARSEC >= dStopTime:
-        blobs = np.array([np.nan, np.nan, np.nan])
+    if not output.log.final.system.Age / YEARSEC >= dStopTime:
+        daParams = np.array([np.nan, np.nan, np.nan])
         return -np.inf, blobs
 
     # Get stellar properties
-    dLum = float(output.log.final.star.Luminosity)
-    dLumXUV = float(output.log.final.star.LXUVStellar)
-    dRad = float(output.log.final.star.Radius)
+    dLumTrial = float(output.log.final.star.Luminosity)
+    dLumXUVTrial = float(output.log.final.star.LXUVStellar)
+    dRadiusTrial = float(output.log.final.star.Radius)
 
     # Compute ratio of XUV to bolometric luminosity
-    dLumXUVRatio = dLumXUV / dLum
+    dLumXUVRatioTrial = dLumXUVTrial / dLumTrial
 
     # Extract constraints
     # Must at least have luminosity, err for star
-    lum = kwargs.get("LUM")
-    lumSig = kwargs.get("LUMSIG")
+    dLum = kwargs.get("LUM")
+    dLumSig = kwargs.get("LUMSIG")
     try:
-        lumXUVRatio = kwargs.get("LUMXUVRATIO")
-        lumXUVRatioSig = kwargs.get("LUMXUVRATIOSIG")
+        dLumXUVRatio = kwargs.get("LUMXUVRATIO")
+        dLumXUVRatioSig = kwargs.get("LUMXUVRATIOSIG")
     except KeyError:
-        lumXUVRatio = None
-        lumXUVRatioSig = None
+        dLumXUVRatio = None
+        dLumXUVRatioSig = None
 
     # Compute the likelihood using provided constraints, assuming we have
     # luminosity constraints for host star
-    lnlike = ((dLum - lum) / lumSig) ** 2
-    if lumXUVRatio is not None:
-        lnlike += ((dLumXUVRatio - lumXUVRatio) / lumXUVRatioSig) ** 2
-    lnlike = -0.5 * lnlike
+    dLnLike = ((dLum - dLumTrial) / dLumSig) ** 2
+    if dLumXUVRatio is not None:
+        dLnLike += ((dLumXUVRatio - dLumXUVRatioTrial) / dLumXUVRatioSig) ** 2
+    dLnLike = -0.5 * dLnLike
 
-    # Return likelihood and blobs
-    blobs = np.array([dLum, dLumXUV, dRad])
-    return lnlike, blobs
+    # Return likelihood and diognostic parameters
+    daParams = np.array([dLumTrial, dLumXUVTrial, dRadiusTrial])
+    return dLnLike, daParams
 #end function
 
-# Dictionary to hold all constraints
-kwargs = {"PATH" : ".",                          # Path to all files
-          "LnPrior" : LnPriorTRAPPIST1,          # Function for priors
-          "PriorSample" : samplePriorTRAPPIST1,  # Function to sample priors
-          "LUM" : lumTrappist1,                  # Best fit luminosity constraint
-          "LUMSIG" : lumTrappist1Sig,            # Luminosity uncertainty (Gaussian)
-          "LUMXUVRATIO" : LRatioTrappist1,       # L_bol/L_XUV best fit
-          "LUMXUVRATIOSIG" : LRatioTrappist1Sig, # L_bol/L_XUV uncertainty (Gaussian)
-          "PER_E" : ePer,                        # Best fit orbital period for planet e
-          "PER_ESIG" : ePerSig,
-          "MASS_E" : eMass,
-          "MASS_ESIG" : eMassSig,
-          "RAD_E" : eRad,
-          "RAD_ESIG" : eRadSig
-          }
 
-# Stellar properties: Trappist1 in nearly solar metallicity, so the Baraffe+2015 tracks will be good
+######## Main code begins here ###########
+
+# Stellar properties: Trappist1 is nearly solar metallicity, so the Baraffe+2015 tracks will be good
 dLum = 0.000522               # Van Grootel et al. (2018) [Lsun]
 dLumSig = 0.000019            # Van Grootel et al. (2018) [Lsun]
 
@@ -270,7 +279,21 @@ dAgeSig = 2.2                 # Burgasser et al. (2017) [Gyr]
 dFSat = -2.92                 # Wright et al. (2011) and Chadney et al. (2015)
 dFSatSig = 0.26               # Wright et al. (2011) and Chadney et al. (2015)
 
-
+# Dictionary to hold all constraints
+kwargs = {"PATH" : ".",                          # Path to all files
+          "LnPrior" : LnPrior,          # Function for priors
+          "PriorSample" : SamplePrior,  # Function to sample priors
+          "LUM" : dLum,                  # Best fit luminosity constraint
+          "LUMSIG" : dLumSig,            # Luminosity uncertainty (Gaussian)
+          "LUMXUVRATIO" : dLRatio,       # L_bol/L_XUV best fit
+          "LUMXUVRATIOSIG" : dLRatioSig, # L_bol/L_XUV uncertainty (Gaussian)
+#          "PER_E" : ePer,                        # Best fit orbital period for planet e
+#          "PER_ESIG" : ePerSig,
+#          "MASS_E" : eMass,
+#          "MASS_ESIG" : eMassSig,
+#          "RAD_E" : eRad,
+#          "RAD_ESIG" : eRadSig
+          }
 # Define algorithm parameters
 
 iDim = 5                         # Dimensionality of the problem
@@ -295,11 +318,13 @@ dPriorSatFracMin = -5
 dPriorSatFracMax = -1
 
 # Prior bounds
-daBounds = ((dPriorStarMassMin, dPriorStarMassMax),
+daBounds = (
+          (dPriorStarMassMin, dPriorStarMassMax),
           (dPriorSatFracMin, dPriorSatFracMax),
           (dPriorSatTimeMin, dPriorSatTimeMax),
           (dPriorAgeMin, dPriorAgeMax),
-          (dPriorBetaMin, dPriorBetaMax))
+          (dPriorBetaMin, dPriorBetaMax)
+          )
 
 sAlgorithm = "BAPE"              # Kandasamy et al. (2015) formalism
 
@@ -315,22 +340,25 @@ mcmcKwargs = {"iterations" : int(1.0e4)}
 #PATH = os.path.dirname(os.path.abspath(__file__))
 #kwargs["PATH"] = PATH
 
+# Extract path
+PATH = kwargs["PATH"]
+
 # Get the input files, save them as strings
 with open(os.path.join(PATH, "star.in"), 'r') as f:
-    star_in = f.read()
-    kwargs["STARIN"] = star_in
+    sStarFile = f.read()
+    kwargs["STARIN"] = sStarFile
 with open(os.path.join(PATH, "vpl.in"), 'r') as f:
-    vpl_in = f.read()
-    kwargs["VPLIN"] = vpl_in
-with open(os.path.join(PATH, "e.in"), 'r') as f:
-    e_in = f.read()
-    kwargs["EIN"] = e_in
+    sPrimaryFile = f.read()
+    kwargs["VPLIN"] = sPrimaryFile
+#with open(os.path.join(PATH, "e.in"), 'r') as f:
+#    sEFile = f.read()
+#    kwargs["EIN"] = sEFile
 
 # Generate initial training set using latin hypercube sampling over parameter bounds
 # Evaluate forward model log likelihood + lnprior for each theta
 if not os.path.exists("apRunAPFModelCache.npz"):
     y = np.zeros(iTrainInit)
-    #theta = utility.latinHypercubeSampling(m0, bounds, criterion="maximin")
+    theta = np.zeros((iTrainInit,iDim))
     for ii in range(iTrainInit):
         theta[ii,:] = SamplePrior()
         y[ii] = LnLike(theta[ii], **kwargs)[0] + LnPrior(theta[ii], **kwargs)

@@ -1,14 +1,17 @@
+# Input file for mass loss on TRAPPIST-1 e
 sName                     e
 saModules                 atmesc
-dXFrac                    1.0
-dSurfWaterMass            -10.0
-#dSemi                     -0.02928285
-dOrbPeriod		  -5.3
-dEcc                      0.0051
-dEnvelopeMass             0.0
+
 dMass                     -0.772
 dRadius                   -0.910
-sWaterLossModel           lbexact
-sAtmXAbsEffH2OModel       bolmont16
-bInstantO2Sink            0
+dOrbPeriod		            -5.3
+dEcc                      0.0051
+
+dXFrac                    1.0
+dSurfWaterMass            -10.0
+dEnvelopeMass             0.0
+#sWaterLossModel           lbexact
+#sAtmXAbsEffH2OModel       bolmont16
+bInstantO2Sink            1
+
 saOutputOrder    	        Time -SurfWaterMass -OxygenMass
