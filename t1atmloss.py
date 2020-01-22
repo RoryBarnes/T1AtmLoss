@@ -202,7 +202,7 @@ def LnLike(daStateVector, **kwargs):
         print(sPrimaryFileIn, file = f)
 
     # Run VPLANET and get the output, then delete the output files
-    subprocess.call(["vplanet", sPrimaryFile], cwd = os.path.join(PATH, "output"))
+    subprocess.call(["vplanet", '-q', sPrimaryFile], cwd = os.path.join(PATH, "output"))
     output = vpl.GetOutput(os.path.join(PATH, "output"), logfile = sLogFile)
 
     try:
@@ -360,6 +360,7 @@ if not os.path.exists("apRunAPFModelCache.npz"):
     y = np.zeros(iTrainInit)
     theta = np.zeros((iTrainInit,iDim))
     for ii in range(iTrainInit):
+        print("Training simulation: %d" % ii)
         theta[ii,:] = SamplePrior()
         y[ii] = LnLike(theta[ii], **kwargs)[0] + LnPrior(theta[ii], **kwargs)
     np.savez("apRunAPFModelCache.npz", theta=theta, y=y)
