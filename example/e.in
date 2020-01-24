@@ -1,0 +1,34 @@
+# Planet e, with silicates+iron+water+H
+sName		       e		   # Body's name
+saModules      atmesc
+
+
+dMass		       -0.772        # Mass, negative -> Earth masses
+sMassRad       auto
+
+dOrbPeriod     -5.3
+
+# Properties of the solid planet
+dFracRock      0.7
+
+# Propreties of the water layer
+dSurfWaterMass -1000
+dWaterDensity  -1
+
+# Properties of the H envelope
+dEnvelopeMass  -0.1
+dXFrac         1.0     # X-Ray/XUV absorption radius in planet radii
+#dThermTemp     880    # Not setting causes code to calculate based on Albedo
+dAtmGasConst   4157
+dAlbedoGlobal  0.3
+
+# AtmEsc Parameters
+sPlanetRadiusModel  auto
+dAtmXAbsEffH        0.3     # H X-ray/XUV absorption efficiency (epsilon)
+dAtmXAbsEffH2O      0.1
+bInstantO2Sink      1       # Is Oxygen instantly absorbed by the surface?
+bAtmEscAuto         1       # Should atmesc decide the escape regime?
+
+saOutputOrder 	Time -Mass -EnvelopeMass -PlanetRadius -BondiRadius $
+                -RocheRadius DEnvMassDt RRCriticalFlux HEscapeRegime FXUV $
+                -SurfWaterMass -ThermTemp
