@@ -51,10 +51,18 @@ Mathematical constraints
 1. Sum of "fractions" must equal 1
 
 Additional Parameters (daParams)
-1. L_XUV (dLXUV)
-2. Stellar radius (dStarRad)
-3. Planetary equilibrium temp. (dEqTemp)
-4. Surface pressure (dSurfPress)
+1. Luminosity (dLumTrial)
+2. L_XUV (dLumXUVTrial)
+3. Eff. Temp (dTEffTrial)
+4. Period of e (dPerETrial)
+5. Mass of e (dMassETrial)
+6. Radius of e (dRadETrial)
+7. Stellar radius (dStarRad)
+8. Planetary equilibrium temp. (dEqTemp)
+9. Surface pressure (dSurfPress)
+10. Final water mass (dWaterMass)
+11. Final H mass fraction (dEnvMass)
+12. Atmospheric oxygen pressure(dOxygenPress)
 
 """
 
@@ -73,21 +81,36 @@ def SampleStateVector(iSize=1, **kwargs):
     daStateVector = []
     for iSample in range(iSize):
         while True:
-            daGuess = [np.random.uniform(low=dStarMassMin, high=dStarMassMax),
-                     norm.rvs(loc=dFSatMean, scale=dFSatSig, size=1)[0],
-                     np.random.uniform(low=dTSatMin, high=dTSatMax),
-                     norm.rvs(loc=dAgeMean, scale=dAgeSig, size=1)[0],
-                     norm.rvs(loc=dBetaMean, scale=dBetaSig, size=1)[0],
-                     np.random.uniform(low=dFIronMin, high=dFIronMax),
-                     np.random.uniform(low=dFRockMin, high=dFRockMax),
-                     np.random.uniform(low=dFWaterMin, high=dFWaterMax),
-                     np.random.uniform(low=dFHydMin, high=dFHydMax),
-                     np.random.uniform(low=dEscCoeffHMin, high=dEscCoeffMax),
-                     np.random.uniform(low=dEscCoeffH2OMin, high=dEscCoeffH2OMax),
-                     np.random.uniform(low=dPressXUVMin, high=dPressXUVMax),
-                     np.random.uniform(low=dAlbedoMin, high=dAlbedoMax),
-                     np.random.uniform(low=dPlanetMassMin, high=dPlanetMassMax)
-                     ]
+            dStarMassGuess = np.random.uniform(low=dStarMassMin, high=dStarMassMax)
+            dFSatGuess = norm.rvs(loc=dFSatMean, scale=dFSatSig, size=1)[0]
+            dTSatGuess = np.random.uniform(low=dTSatMin, high=dTSatMax)
+            dAgeGuess = norm.rvs(loc=dAgeMean, scale=dAgeSig, size=1)[0]
+            dBetaGuess = norm.rvs(loc=dBetaMean, scale=dBetaSig, size=1)[0]
+            dFIronGuess = np.random.uniform(low=dFIronMin, high=dFIronMax)
+            dFRockGuess = np.random.uniform(low=dFRockMin, high=dFRockMax)
+            dFWaterGuess = np.random.uniform(low=dFWaterMin, high=dFWaterMax)
+            dFHydGuess = 1 - dFIronGuess - dFRockGuess - dFWaterGuess
+            dEscCoeffHGuess = np.random.uniform(low=dEscCoeffHMin, high=dEscCoeffMax)
+            dEscCoeffH2OGuess = np.random.uniform(low=dEscCoeffH2OMin, high=dEscCoeffH2OMax)
+            dPressXUVGuess =  np.random.uniform(low=dPressXUVMin, high=dPressXUVMax)
+            dAlbedoGuess = np.random.uniform(low=dAlbedoMin, high=dAlbedoMax)
+            dPlanetMassGuess = np.random.uniform(low=dPlanetMassMin, high=dPlanetMassMax)
+
+            daGuess = [dStarMassGuess,
+                       dFSatGuess,
+                       dTSatGuess,
+                       dAgeGuess,
+                       dBetaGuess,
+                       dFIronGuess,
+                       dFRockGuess,
+                       dFWaterGuess,
+                       dFHydGuess,
+                       dEscCoeffHGuess,
+                       dEscCoeffH2OGuess,
+                       dPressXUVGuess,
+                       dAlbedoGuess,
+                       dPlanetMassGuess
+                       ]
             if not np.isinf(LnPrior(daGuess, **kwargs)):
                 daStateVector.append(daGuess)
                 break
@@ -165,7 +188,8 @@ def LnLike(daStateVector, **kwargs):
     # Do this to prevent errors stemming from VPLanet not finishing
     dLnPrior = kwargs["LnPrior"](daStateVector, **kwargs)
     if np.isinf(dLnPrior):
-        daParams = np.array([np.nan, np.nan, np.nan, np.nan])
+        for iPrm in range(iNumOutputPrms):
+            daParams[iPrm] = np.nan
         return -np.inf, daParams
 
     # Get strings containing VPLanet input files (they must be provided!)
@@ -204,15 +228,15 @@ def LnLike(daStateVector, **kwargs):
     sStarFileIn = re.sub("%s(.*?)#" % "dSatXUVTime", "%s %.6e #" % ("dSatXUVTime", -dTSat), sStarFileIn)
     sStarFileIn = re.sub("%s(.*?)#" % "dXUVBeta", "%s %.6e #" % ("dXUVBeta", -dBeta), sStarFileIn)
 
-    sStarFileIn = re.sub("%s(.*?)#" % "dFracIron", "%s %.6e #" % ("dFracIron", dFIron), sPlanetFileIn)
-    sStarFileIn = re.sub("%s(.*?)#" % "dFracRock", "%s %.6e #" % ("dFracRock", dFRock), sPlanetFileIn)
-    sStarFileIn = re.sub("%s(.*?)#" % "dFracIce", "%s %.6e #" % ("dFracIce", dFWater), sPlanetFileIn)
-    sStarFileIn = re.sub("%s(.*?)#" % "dEnvelopeMass", "%s %.6e #" % ("dEnvelopeMass", -(dFracHyd*dPlanetMass), sPlanetFileIn)
-    sStarFileIn = re.sub("%s(.*?)#" % "dAtmXAbsEffH", "%s %.6e #" % ("dAtmXAbsEffH", dEscCoeffH), sPlanetFileIn)
-    sStarFileIn = re.sub("%s(.*?)#" % "dAtmXAbsEffH2O", "%s %.6e #" % ("dAtmXAbsEffH2O", dEscCoeffH2O), sPlanetFileIn)
-    sStarFileIn = re.sub("%s(.*?)#" % "dPresXUV", "%s %.6e #" % ("dPresXUV", dPressXUV), sPlanetFileIn)
-    sStarFileIn = re.sub("%s(.*?)#" % "dAlbedoGlobal", "%s %.6e #" % ("dAlbedoGlobal", dAlbedo), sPlanetFileIn)
-    sStarFileIn = re.sub("%s(.*?)#" % "dMass", "%s %.6e #" % ("dMass", dPlanetMass), sPlanetFileIn)
+    sPlanetFileIn = re.sub("%s(.*?)#" % "dFracIron", "%s %.6e #" % ("dFracIron", dFIron), sPlanetFileIn)
+    sPlanetFileIn = re.sub("%s(.*?)#" % "dFracRock", "%s %.6e #" % ("dFracRock", dFRock), sPlanetFileIn)
+    sPlanetFileIn = re.sub("%s(.*?)#" % "dFracIce", "%s %.6e #" % ("dFracIce", dFWater), sPlanetFileIn)
+    sPlanetFileIn = re.sub("%s(.*?)#" % "dEnvelopeMass", "%s %.6e #" % ("dEnvelopeMass", -(dFracHyd*dPlanetMass), sPlanetFileIn)
+    sPlanetFileIn = re.sub("%s(.*?)#" % "dAtmXAbsEffH", "%s %.6e #" % ("dAtmXAbsEffH", dEscCoeffH), sPlanetFileIn)
+    sPlanetFileIn = re.sub("%s(.*?)#" % "dAtmXAbsEffH2O", "%s %.6e #" % ("dAtmXAbsEffH2O", dEscCoeffH2O), sPlanetFileIn)
+    sPlanetFileIn = re.sub("%s(.*?)#" % "dPresXUV", "%s %.6e #" % ("dPresXUV", dPressXUV), sPlanetFileIn)
+    sPlanetFileIn = re.sub("%s(.*?)#" % "dAlbedoGlobal", "%s %.6e #" % ("dAlbedoGlobal", dAlbedo), sPlanetFileIn)
+    sPlanetFileIn = re.sub("%s(.*?)#" % "dMass", "%s %.6e #" % ("dMass", dPlanetMass), sPlanetFileIn)
 
     with open(os.path.join(PATH, "output", sStarFile), 'w') as f:
         print(sStarFileIn, file = f)
@@ -246,20 +270,32 @@ def LnLike(daStateVector, **kwargs):
         os.remove(os.path.join(PATH, "output", sLogFile))
     except FileNotFoundError:
         # Run failed!
-        daParams = np.array([np.nan, np.nan, np.nan, np.nan])
+        for iPrm in range(iNumOutputPrms):
+            daParams[iPrm] = np.nan
         return -np.inf, daParams
 
     # Ensure we ran for as long as we set out to
     # XXX Why not == pr < dEpsilon?
     if not output.log.final.system.Age / YEARSEC >= dStopTime:
-        daParams = np.array([np.nan, np.nan, np.nan, np.nan])
+        for iPrm in range(iNumOutputPrms):
+            daParams[iPrm] = np.nan
         return -np.inf, daParams
 
     # Get final values of observed parameters
     dLumTrial = float(output.log.final.star.Luminosity)
     dLumXUVTrial = float(output.log.final.star.LXUVStellar)
-    dRadiusTrial = float(output.log.final.star.Radius)
+    dTeffTrial = float(output.log.final.star.Temperature)
+    dPerETrial = float(output.log.final.e.OrbPeriod)
+    dMassETrial = float(output.log.final.e.Mass)
+    dRadETrial = float(output.log.final.e.Radius)
 
+    # Add extra parameters
+    dStarRad = float(output.log.final.star.Radius)
+    dEqTemp = float(output.log.final.e.ThermTemp)
+    dSurfPress = float(output.log.final.e.PresSurf)
+    dWaterMass = float(output.log.final.e.SurfWaterMass)
+    dEnvMass = float(output.log.final.e.EnvelopeMass)
+    dOxygenPress = float(output.log.final.e.OxygenMass)
     # Compute ratio of XUV to bolometric luminosity
     dLumXUVRatioTrial = dLumXUVTrial / dLumTrial
 
@@ -267,23 +303,51 @@ def LnLike(daStateVector, **kwargs):
     # Must at least have luminosity, err for star
     dLum = kwargs.get("LUM")
     dLumSig = kwargs.get("LUMSIG")
-    try:
-        dLumXUVRatio = kwargs.get("LUMXUVRATIO")
-        dLumXUVRatioSig = kwargs.get("LUMXUVRATIOSIG")
-    except KeyError:
-        dLumXUVRatio = None
-        dLumXUVRatioSig = None
+
+    dLumXUVRatio = kwargs.get("LUMXUVRATIO")
+    dLumXUVRatioSig = kwargs.get("LUMXUVRATIOSIG")
+
+    dTEff = kwargs.get("TEFF")
+    dTEffSig = kwargs.get("TEFFSIG")
+
+    dPerE = kwargs.get("PER_E")
+    dPerESig = kwargs.get("PER_ESIG")
+
+    dMass_E = kwargs.get("MASS_E")
+    dMass_ESig = kwargs.get("MASS_ESIG")
+
+    dRad_E = kwargs.get("RAD_E")
+    dRad_ESig = kwargs.get("RAD_ESIG")
 
     # Compute the likelihood using provided constraints, assuming we have
     # luminosity constraints for host star
-    dLnLike = ((dLum - dLumTrial) / dLumSig) ** 2
-    if dLumXUVRatio is not None:
-        dLnLike += ((dLumXUVRatio - dLumXUVRatioTrial) / dLumXUVRatioSig) ** 2
+    dnLike = 0
+
+    dLnLike += ((dLum - dLumTrial) / dLumSig) ** 2
+    dLnLike += ((dLumXUVRatio - dLumXUVRatioTrial) / dLumXUVRatioSig) ** 2
+    dLnLike += ((dTEff - dTEffTrial) / dTEffSig) ** 2
+    dLnLike += ((dPer_E - dPerETrial) / dPer_ESig) ** 2
+    dLnLike += ((dMass_E - dMassETrial) / dMass_ESig) ** 2
+    dLnLike += ((dRad_e - dRadETrial) / dRad_ESig) ** 2
+
     dLnLike = -0.5 * dLnLike
 
     print("dLnLike: ",dLnLike)
     # Return likelihood and diognostic parameters
-    daParams = np.array([dLumTrial, dLumXUVTrial, dRadiusTrial])
+
+    daParams = np.array([dLumTrial,
+                         dLumXUVTrial,
+                         dTEffTrial,
+                         dPerETrial,
+                         dMassETrial,
+                         dRadETrial,
+                         dStarRad,
+                         dEqTemp,
+                         dSurfPress,
+                         dWaterMass,
+                         dEnvMass,
+                         dOxygenPress
+                         ])
     return dLnLike, daParams
 #end function
 
@@ -311,18 +375,9 @@ dRadESig = 0.027
 dPerE = 6.099043
 dPerESig = 1.5e-5
 
-# Old parameters?
-#dRadius = 0.121               # Van Grootel et al. (2018) [Rsun]
-#dRadiusSig = 0.003            # Van Grootel et al. (2018) [Rsun]
-
-#dLogLXUV = -6.4               # Wheatley et al. (2017), Van Grootel et al. (2018)
-#dLogLXUVSig = 0.05            # Wheatley et al. (2017), Van Grootel et al. (2018)
-
-#dLXUV = 3.9e-7                # Wheatley et al. (2017), Van Grootel et al. (2018)
-#dLXUVSig = 0.5e-7             # Wheatley et al. (2017), Van Grootel et al. (2018)
-
 # Model parameters with normally distributed priors
 iNumModelPrms = 14
+iNumOutputPrms = 12
 
 dBeta = -1.18                 # Jackson et al. (2012)
 dBetaSig = 0.31               # Jackson et al. (2012)
@@ -385,6 +440,7 @@ kwargs = {"PATH" : ".",                          # Path to all files
           "LUMXUVRATIO" : dLRatio,       # L_bol/L_XUV best fit
           "LUMXUVRATIOSIG" : dLRatioSig, # L_bol/L_XUV uncertainty (Gaussian)
           "TEFF" : dTEffMean,
+          "TEFFSIG" : dTEffSig,
           "PER_E" : PerE,                        # Best fit orbital period for planet e
           "PER_ESIG" : PerESig,
           "MASS_E" : MassE,
@@ -396,7 +452,7 @@ kwargs = {"PATH" : ".",                          # Path to all files
 iTrainInit = 10                         # Initial size of training set
 iNewPoints = 10                          # Number of new points to find each iteration
 iMaxIter = 10                        # Maximum number of iterations
-iSeed = 90                        # RNG seed
+iSeed = 77                        # RNG seed
 iGPRestarts = 10                 # Number of times to restart GP hyperparameter optimizations
 iMinObjRestarts = 10             # Number of times to restart objective fn minimization
 iGPOptInterval = 25                 # Optimize GP hyperparameters even this many iterations
@@ -444,7 +500,7 @@ with open(os.path.join(PATH, "star.in"), 'r') as f:
     kwargs["STARIN"] = sStarFile
 with open(os.path.join(PATH, "planet.in"), 'r') as f:
     sPlanetFile = f.read()
-    kwargs["STARIN"] = sStarFile
+    kwargs["PLANETIN"] = sPlanetFile
 with open(os.path.join(PATH, "vpl.in"), 'r') as f:
     sPrimaryFile = f.read()
     kwargs["VPLIN"] = sPrimaryFile
