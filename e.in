@@ -1,17 +1,24 @@
 # Input file for mass loss on TRAPPIST-1 e
-sName                     e
-saModules                 atmesc
+sName           e         # Planet name
+saModules       atmesc    # Module list
 
-dMass                     -0.772
-dRadius                   -0.910
-dOrbPeriod		            -5.3
-dEcc                      0.0051
+dMass           -0.772    # Planet mass
+#dRadius         -0.910    # Planet radius
+dOrbPeriod      -5.3      # Orbital Period
+dEcc            0.0051    # Eccentricity
+sMassRad        Auto
 
-dXFrac                    1.0
-dSurfWaterMass            -10.0
-dEnvelopeMass             0.0
-#sWaterLossModel           lbexact
-#sAtmXAbsEffH2OModel       bolmont16
-bInstantO2Sink            1
+dXFrac          1.0       # Fraction of radius where XUV absorbed
+dSurfWaterMass  -10.0     # Total surface water mass
+dEnvelopeMass   0.0       # Total envelope mass
+bInstantO2Sink  0         # Instantly force O2 into solid interior
+
+dFracRock       0.7       # Fraction of core in silicates
+dAlbedoGlobal   0.3       # Albedo
+dPresXUV        5         # Pressure where XUV absorbed
+dAtmXAbsEffH    0.3       # Efficiency of H escape
+dAtmXAbsEffH2O  0.07      # Efficient of water escape
+
+
 
 saOutputOrder    	        Time -SurfWaterMass -OxygenMass
